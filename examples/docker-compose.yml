@@ -1,0 +1,45 @@
+services:
+  music-metadata-tool-scan:
+    image: crpi-su5s3bwb64o8zfrt.cn-hangzhou.personal.cr.aliyuncs.com/marsha/music-metadata-tool:0.1.0
+    platform: linux/amd64
+    volumes:
+      - "${MUSIC_DIR:?Set MUSIC_DIR to your music library}:/music"
+      - "${REPORT_DIR:?Set REPORT_DIR to report output directory}:/report"
+    command:
+      - scan
+      - /music
+      - --index
+      - /report/music_metadata_index.csv
+      - --report-dir
+      - /report
+
+  music-metadata-tool-fix-dry-run:
+    image: crpi-su5s3bwb64o8zfrt.cn-hangzhou.personal.cr.aliyuncs.com/marsha/music-metadata-tool:0.1.0
+    platform: linux/amd64
+    volumes:
+      - "${MUSIC_DIR:?Set MUSIC_DIR to your music library}:/music"
+      - "${REPORT_DIR:?Set REPORT_DIR to report output directory}:/report"
+    command:
+      - fix
+      - --index
+      - /report/music_metadata_index.csv
+      - --report
+      - /report/fix_report.csv
+      - --items
+      - genre,albumartist
+
+  music-metadata-tool-fix-write:
+    image: crpi-su5s3bwb64o8zfrt.cn-hangzhou.personal.cr.aliyuncs.com/marsha/music-metadata-tool:0.1.0
+    platform: linux/amd64
+    volumes:
+      - "${MUSIC_DIR:?Set MUSIC_DIR to your music library}:/music"
+      - "${REPORT_DIR:?Set REPORT_DIR to report output directory}:/report"
+    command:
+      - fix
+      - --index
+      - /report/music_metadata_index.csv
+      - --report
+      - /report/fix_report.csv
+      - --items
+      - genre,albumartist
+      - --write
