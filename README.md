@@ -1,61 +1,62 @@
 # music-metadata-tool
 
-长期维护的音乐元数据索引与修复工具。
+长期维护的音乐库元数据索引、检查和修复工具。
+
+项目目标是把音乐文件 tags 当作真实来源，把索引和报表当作可重建缓存。CLI 和 Web API 共用同一套核心逻辑，避免出现“命令行一套规则、Web 一套规则”的分裂。
 
 ## 功能
 
 - `scan`: 构建或增量更新音乐元数据索引。
 - `fix`: 根据索引执行保守 tag 修复，默认 dry-run。
+- `web`: 启动 REST API 后端，通过 Swagger UI 查看和操作。
 
 当前 `fix` 第一版支持：
 
 - `genre`: 清理明显噪声，归一常见 genre 别名。
 - `albumartist`: 对单艺术家专辑补齐空的 albumartist。
 
-## 构建/增量扫描
+## 数据文件
+
+默认建议挂载：
+
+```text
+/music   音乐库目录
+/report  索引、报表、任务日志目录
+```
+
+主要文件：
+
+```text
+/report/music_metadata_index.csv
+/report/genre_stats.csv
+/report/artist_stats.csv
+/report/albumartist_stats.csv
+/report/missing_albumartist.csv
+/report/multi_artist_suspect.csv
+/report/watermark_suspect.csv
+/report/read_errors.csv
+/report/jobs/jobs.jsonl
+/report/jobs/<job_id>.log
+```
+
+## 扫描
+
+增量扫描：
 
 ```bash
-music-metadata-tool scan /music --index /report/music_metadata_index.csv --report-dir /report
+music-metadata-tool scan /music \
+  --index /report/music_metadata_index.csv \
+  --report-dir /report
 ```
 
 强制全量重建：
 
 ```bash
-music-metadata-tool scan /music --index /report/music_metadata_index.csv --report-dir /report --full
+music-metadata-tool scan /music \
+  --index /report/music_metadata_index.csv \
+  --report-dir /report \
+  --full
 ```
-
-## Dry-run 修复
-
-```bash
-music-metadata-tool fix --index /report/music_metadata_index.csv --report /report/fix_report.csv --items genre,albumartist
-```
-
-`fix_report.csv` 同时也是修复断点文件。默认会 resume：如果中途重启，下一次会跳过报告中已经成功处理过的文件。每 1000 个处理项 flush 一次，可通过 `--flush-every` 调整。
-
-## 写入修复
-
-```bash
-music-metadata-tool fix --index /report/music_metadata_index.csv --report /report/fix_report.csv --items genre,albumartist --write
-```
-
-如果噪声 genre 需要指定替代值：
-
-```bash
-music-metadata-tool fix --index /report/music_metadata_index.csv --items genre --fallback-genre folk --write
-```
-
-## Docker
-
-```bash
-docker build -t music-metadata-tool:local .
-docker run --rm \
-  -v "/path/to/music:/music" \
-  -v "$PWD/report:/report" \
-  music-metadata-tool:local \
-  scan /music --index /report/music_metadata_index.csv --report-dir /report
-```
-
-## 索引原则
 
 索引用 `path + size + mtime_ns` 判断文件是否发生变化。增量扫描时：
 
@@ -64,4 +65,126 @@ docker run --rm \
 - 已变化文件重新读取 tags。
 - 不存在的旧文件标记为 `deleted`。
 
-修复命令写入 tag 后，文件 mtime 会变化；下一次 `scan` 会自动刷新这些文件的索引。
+## 修复
+
+Dry-run：
+
+```bash
+music-metadata-tool fix \
+  --index /report/music_metadata_index.csv \
+  --report /report/fix_report.csv \
+  --items genre,albumartist
+```
+
+写入：
+
+```bash
+music-metadata-tool fix \
+  --index /report/music_metadata_index.csv \
+  --report /report/fix_report.csv \
+  --items genre,albumartist \
+  --write
+```
+
+如果噪声 genre 需要指定替代值：
+
+```bash
+music-metadata-tool fix \
+  --index /report/music_metadata_index.csv \
+  --items genre \
+  --fallback-genre folk \
+  --write
+```
+
+`fix_report.csv` 同时也是修复断点文件。默认会 resume：如果中途重启，下一次会跳过报告中已经成功处理过的文件。每 1000 个处理项 flush 一次，可通过 `--flush-every` 调整。
+
+## Web 后端
+
+启动：
+
+```bash
+music-metadata-tool web \
+  --music-dir /music \
+  --index /report/music_metadata_index.csv \
+  --report-dir /report \
+  --host 0.0.0.0 \
+  --port 8080
+```
+
+Swagger UI：
+
+```text
+http://localhost:8080/docs
+```
+
+主要 API：
+
+```text
+GET    /api/health
+GET    /api/tracks
+GET    /api/tracks/{track_id}
+PATCH  /api/tracks/{track_id}/tags
+POST   /api/jobs/scan
+POST   /api/jobs/fix
+GET    /api/jobs
+GET    /api/jobs/{job_id}
+GET    /api/jobs/{job_id}/logs
+```
+
+Web 写 tag 时会：
+
+```text
+校验字段 -> 确认路径在 /music 内 -> 写入音频文件 -> 重新读取该文件 -> 更新索引行
+```
+
+## Docker
+
+构建：
+
+```bash
+docker build -t music-metadata-tool:local .
+```
+
+扫描：
+
+```bash
+docker run --rm \
+  -v "/path/to/music:/music" \
+  -v "$PWD/report:/report" \
+  music-metadata-tool:local \
+  scan /music --index /report/music_metadata_index.csv --report-dir /report
+```
+
+Web：
+
+```bash
+docker run --rm \
+  -p 8080:8080 \
+  -v "/path/to/music:/music" \
+  -v "$PWD/report:/report" \
+  music-metadata-tool:local \
+  web --music-dir /music --index /report/music_metadata_index.csv --report-dir /report --host 0.0.0.0 --port 8080
+```
+
+## 安全边界
+
+- Web 默认监听 `127.0.0.1`，Docker 暴露给外部时需要显式传 `--host 0.0.0.0`。
+- Web API 不接受任意 shell 命令。
+- 单曲编辑只允许修改白名单 tag。
+- 文件路径必须位于配置的音乐库目录下。
+- 修复任务默认 dry-run，只有 `write=true` 或 CLI `--write` 才写入音频文件。
+
+## 开发
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -e '.[dev]'
+pytest
+```
+
+设计文档：
+
+```text
+docs/design-web-backend.md
+```

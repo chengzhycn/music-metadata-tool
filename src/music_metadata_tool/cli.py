@@ -6,6 +6,7 @@ import argparse
 from . import __version__
 from .fixer import run_fix
 from .indexer import scan_library
+from .web.app import create_app
 
 
 def parse_items(value: str) -> list[str]:
@@ -33,6 +34,13 @@ def build_parser() -> argparse.ArgumentParser:
     fix.add_argument("--progress-every", type=int, default=100)
     fix.add_argument("--flush-every", type=int, default=1000)
     fix.add_argument("--no-resume", action="store_true", help="ignore existing fix report and start over")
+
+    web = subparsers.add_parser("web", help="start REST API server")
+    web.add_argument("--music-dir", type=Path, default=Path("/music"))
+    web.add_argument("--index", type=Path, default=Path("/report/music_metadata_index.csv"))
+    web.add_argument("--report-dir", type=Path, default=Path("/report"))
+    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument("--port", type=int, default=8080)
     return parser
 
 
@@ -58,5 +66,10 @@ def main() -> None:
             args.flush_every,
             not args.no_resume,
         )
+    elif args.command == "web":
+        import uvicorn
+
+        app = create_app(args.music_dir, args.index, args.report_dir)
+        uvicorn.run(app, host=args.host, port=args.port)
     else:
         parser.print_help()

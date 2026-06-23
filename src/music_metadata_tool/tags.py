@@ -218,3 +218,10 @@ def set_tag(audio, key: str, value: str) -> None:
         audio[key] = [value]
     elif key in audio:
         del audio[key]
+
+
+def write_tags(path: Path, updates: dict[str, str]) -> None:
+    audio = open_easy(path)
+    for key, value in updates.items():
+        set_tag(audio, key, value)
+    audio.save()
