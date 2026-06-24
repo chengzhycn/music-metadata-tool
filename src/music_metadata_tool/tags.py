@@ -66,8 +66,33 @@ EXTRA_TAG_ALIASES = {
     "encoder": {"encodedby", "encoded by", "encoder", "tenc", "tool", "encoding"},
 }
 
+WATERMARK_SCAN_KEYS = {
+    "comment",
+    "comments",
+    "comm",
+    "©cmt",
+    "description",
+    "desc",
+    "ldes",
+    "©des",
+    "notes",
+    "url",
+    "website",
+    "www",
+    "wwwaudiofile",
+    "wwwaudiosource",
+    "source",
+    "provider",
+    "uploader",
+    "encoded-by",
+    "encoder",
+}
+
+WATERMARK_KEY_RE = re.compile(r"^(cue_track\d+_comment|comment:.*|description:.*)$", re.IGNORECASE)
+
 WATERMARK_RE = re.compile(
-    r"(pt80|www\.|kuwo|撕零|賴子|赖子|論壇|论坛|收藏|压制|壓制|download|uploaded)",
+    r"(pt80|1qt8|91ting|kuwo|撕零|捌零|賴子|赖子|論壇|论坛|"
+    r"downloaded from qobuz|uploaded by|pmedia|t\.me/pmedia_music)",
     re.IGNORECASE,
 )
 
@@ -129,6 +154,9 @@ def raw_lookup(raw_tags: dict[str, str], logical_key: str) -> str:
 def detect_watermark(raw_tags: dict[str, str]) -> str:
     hits = []
     for key, value in raw_tags.items():
+        normalized = normalized_key(key)
+        if normalized not in WATERMARK_SCAN_KEYS and not WATERMARK_KEY_RE.search(key):
+            continue
         if WATERMARK_RE.search(value):
             hits.append(f"{key}={value}")
     return " | ".join(hits)

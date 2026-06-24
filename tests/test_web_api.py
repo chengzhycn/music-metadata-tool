@@ -51,7 +51,7 @@ def test_tracks_filters_and_pagination(tmp_path: Path):
                 "artist": "Other Artist",
                 "album": "Other Album",
                 "genre": "rock",
-                "watermark_text": "COMMENT=www.pt80.net",
+                "watermark_text": "comment=www.pt80.net",
             },
         ],
     )

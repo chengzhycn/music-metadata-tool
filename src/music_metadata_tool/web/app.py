@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
+from .. import __version__
 from ..tags import INDEX_FIELDS, read_metadata_row, write_tags
 from .jobs import JobManager
 
@@ -78,7 +79,7 @@ def create_app(music_dir: Path, index_path: Path, report_dir: Path) -> FastAPI:
     index_path = index_path.resolve()
     report_dir = report_dir.resolve()
     manager = JobManager(report_dir)
-    app = FastAPI(title="music-metadata-tool", version="0.2.0")
+    app = FastAPI(title="music-metadata-tool", version=__version__)
 
     @app.get("/api/health")
     def health():

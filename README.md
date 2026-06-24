@@ -14,6 +14,7 @@
 
 - `genre`: 清理明显噪声，归一常见 genre 别名。
 - `albumartist`: 对单艺术家专辑补齐空的 albumartist。
+- `watermark`: 清理高置信水印备注，目前只会计划修改 `comment` 和 `description`，不会修改 `album`、`title`、`artist` 等核心元数据字段。
 
 ## 数据文件
 
@@ -86,6 +87,18 @@ music-metadata-tool fix \
   --write
 ```
 
+清理高置信备注水印：
+
+```bash
+music-metadata-tool fix \
+  --index /report/music_metadata_index.csv \
+  --report /report/fix_watermark_report.csv \
+  --items watermark \
+  --write
+```
+
+`watermark` 修复项只处理 `comment` 和 `description` 中的高置信脏值，例如 `kuwo`、`捌零音樂論壇/賴子收藏`、`This music track is downloaded from qobuz`。扫描阶段发现的 `album=绝对收藏`、歌词里出现“收藏”等情况不应作为水印修复目标。
+
 如果噪声 genre 需要指定替代值：
 
 ```bash
@@ -154,6 +167,14 @@ Web 写 tag 时会：
 docker build -t music-metadata-tool:local .
 ```
 
+默认 Docker 构建使用清华 PyPI 镜像。需要切回官方源时：
+
+```bash
+docker build \
+  --build-arg PIP_INDEX_URL=https://pypi.org/simple \
+  -t music-metadata-tool:local .
+```
+
 扫描：
 
 ```bash
@@ -182,6 +203,7 @@ docker run --rm \
 - 单曲编辑只允许修改白名单 tag。
 - 文件路径必须位于配置的音乐库目录下。
 - 修复任务默认 dry-run，只有 `write=true` 或 CLI `--write` 才写入音频文件。
+- 自动水印修复不修改专辑名、曲名、艺术家、专辑艺术家等核心字段。
 
 ## 开发
 

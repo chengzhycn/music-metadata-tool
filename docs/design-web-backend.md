@@ -12,6 +12,7 @@ The first Web release provides:
 - Background scan jobs.
 - Background fix jobs.
 - Job status and log inspection.
+- Conservative high-confidence watermark cleanup for comment-like metadata fields.
 
 ## Non-goals
 
@@ -73,6 +74,7 @@ as long as the mounted path remains stable.
 - Editable tag fields are allowlisted.
 - The backend rejects file paths outside the configured music root.
 - Fix jobs are dry-run unless `write=true` is supplied.
+- Watermark fixes are scoped to comment-like fields. They must not modify album, title, artist, or albumartist.
 
 ## Future Work
 
