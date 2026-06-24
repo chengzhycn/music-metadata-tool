@@ -29,6 +29,8 @@ FIX_REPORT_FIELDS = [
     "items",
     "rule_source",
     "skip_reason",
+    "old_artist",
+    "new_artist",
     "old_genre",
     "new_genre",
     "old_albumartist",
@@ -124,6 +126,10 @@ def planned_fix(
 
     if "albumartist" in items:
         apply_albumartist_rules(row, albumartist_by_album, rules or {}, plan)
+    if "compilation_albumartist" in items:
+        apply_compilation_albumartist_rules(row, rules or {}, plan)
+    if "infer_artist_from_filename" in items:
+        apply_filename_artist_rules(row, rules or {}, plan)
     if "watermark" in items:
         for key in ["comment", "description"]:
             old_value = row.get(key, "").strip()
@@ -143,6 +149,56 @@ def planned_changes(
     rules: dict | None = None,
 ) -> dict[str, str]:
     return planned_fix(row, items, albumartist_by_album, fallback_genre, rules).changes
+
+
+def apply_compilation_albumartist_rules(row: dict[str, str], rules: dict, plan: FixPlan) -> None:
+    old_albumartist = row.get("albumartist", "").strip()
+    if old_albumartist:
+        return
+    item_rules = rules.get("compilation_albumartist", {}) if isinstance(rules, dict) else {}
+    matched = first_matching_rule(row, item_rules.get("set", []))
+    if not matched:
+        return
+    value = normalize_text(str(matched.get("value", "")))
+    if not value:
+        return
+    plan.changes["albumartist"] = value
+    plan.rule_source = plan.rule_source or "compilation_albumartist.set"
+
+
+def apply_filename_artist_rules(row: dict[str, str], rules: dict, plan: FixPlan) -> None:
+    item_rules = rules.get("infer_artist_from_filename", {}) if isinstance(rules, dict) else {}
+    matched = first_matching_rule(row, item_rules.get("patterns", []))
+    if not matched:
+        return
+    if row.get("artist", "").strip() and row.get("albumartist", "").strip():
+        return
+
+    filename = row.get("filename", "")
+    pattern = str(matched.get("filename_regex", ""))
+    artist_group = str(matched.get("artist_group", "artist"))
+    try:
+        filename_match = re.search(pattern, filename, re.IGNORECASE)
+    except re.error:
+        return
+    if not filename_match:
+        return
+    try:
+        value = normalize_text(filename_match.group(artist_group))
+    except (IndexError, KeyError):
+        return
+    if not value:
+        return
+
+    fields = matched.get("fields", ["artist", "albumartist"])
+    if not isinstance(fields, list):
+        fields = ["artist", "albumartist"]
+    if "artist" in fields and not row.get("artist", "").strip():
+        plan.changes["artist"] = value
+    if "albumartist" in fields and not row.get("albumartist", "").strip():
+        plan.changes["albumartist"] = value
+    if plan.changes:
+        plan.rule_source = plan.rule_source or "infer_artist_from_filename.patterns"
 
 
 def apply_albumartist_rules(
@@ -276,7 +332,7 @@ def run_fix(
         resume = False
     processed_paths = read_processed_paths(report_path) if resume else set()
     items = set(item_names)
-    unsupported = items - {"genre", "albumartist", "watermark"}
+    unsupported = items - {"genre", "albumartist", "watermark", "compilation_albumartist", "infer_artist_from_filename"}
     if unsupported:
         raise ValueError(f"unsupported fix item(s): {', '.join(sorted(unsupported))}")
 
@@ -310,6 +366,8 @@ def run_fix(
                 "items": ",".join(sorted(items)),
                 "rule_source": plan.rule_source,
                 "skip_reason": plan.skip_reason,
+                "old_artist": row.get("artist", ""),
+                "new_artist": row.get("artist", ""),
                 "old_genre": row.get("genre", ""),
                 "new_genre": row.get("genre", ""),
                 "old_albumartist": row.get("albumartist", ""),
@@ -323,6 +381,9 @@ def run_fix(
             }
             if changes:
                 actions = []
+                if "artist" in changes:
+                    report["new_artist"] = changes["artist"]
+                    actions.append(f"artist:{row.get('artist', '')!r}->{changes['artist']!r}")
                 if "genre" in changes:
                     report["new_genre"] = changes["genre"]
                     actions.append(f"genre:{row.get('genre', '')!r}->{changes['genre']!r}")

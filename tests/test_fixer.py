@@ -73,3 +73,55 @@ def test_albumartist_inline_force_overrides_auto_candidate():
 
     assert plan.changes == {"albumartist": "陈奕迅"}
     assert plan.rule_source == "albumartist.force"
+
+
+def test_compilation_albumartist_sets_various_artists_by_rule():
+    row = {
+        "folder": "/music/乐队的夏天/第1期",
+        "album": "乐队的夏天 第1期",
+        "artist": "新裤子",
+        "albumartist": "",
+    }
+    rules = {
+        "compilation_albumartist": {
+            "set": [
+                {
+                    "match": {"folder_regex": "乐队的夏天"},
+                    "value": "Various Artists",
+                }
+            ]
+        }
+    }
+
+    plan = planned_fix(row, {"compilation_albumartist"}, {}, "", rules)
+
+    assert plan.changes == {"albumartist": "Various Artists"}
+    assert plan.rule_source == "compilation_albumartist.set"
+
+
+def test_infer_artist_from_filename_does_not_change_album():
+    row = {
+        "folder": "/music/Eason Chan/陈奕迅 WAV",
+        "filename": "01. 陈奕迅 - 24.wav",
+        "artist": "",
+        "albumartist": "",
+        "album": "",
+    }
+    rules = {
+        "infer_artist_from_filename": {
+            "patterns": [
+                {
+                    "match": {"folder_regex": "Eason Chan|陈奕迅"},
+                    "filename_regex": r"^\d+\.\s*(?P<artist>.+?)\s+-\s+.+\.[^.]+$",
+                    "artist_group": "artist",
+                    "fields": ["artist", "albumartist"],
+                }
+            ]
+        }
+    }
+
+    plan = planned_fix(row, {"infer_artist_from_filename"}, {}, "", rules)
+
+    assert plan.changes == {"artist": "陈奕迅", "albumartist": "陈奕迅"}
+    assert "album" not in plan.changes
+    assert plan.rule_source == "infer_artist_from_filename.patterns"

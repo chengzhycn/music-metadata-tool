@@ -19,7 +19,8 @@ The first Web release provides:
 - No arbitrary shell command execution.
 - No full visual frontend yet; FastAPI's OpenAPI UI is the first interface.
 - No online metadata lookup in this version.
-- No multi-artist write-back rules yet.
+- Multi-artist normalization is not automatic yet. Current support is limited to rule-driven
+  compilation albumartist assignment and filename-based artist/albumartist inference.
 
 ## Data Model
 
@@ -80,6 +81,35 @@ Fix jobs may include inline rules:
       "allow_patterns": ["^[^/、&,，+]+$"],
       "force": [{"match": {"folder": "/music/example"}, "value": "Artist"}],
       "skip": [{"match": {"folder": "/music/bad"}, "reason": "bad source tags"}]
+    }
+  }
+}
+```
+
+Rule-driven compilation and filename inference jobs use the same request shape:
+
+```json
+{
+  "items": ["compilation_albumartist", "infer_artist_from_filename"],
+  "write": false,
+  "rules": {
+    "compilation_albumartist": {
+      "set": [
+        {
+          "match": {"folder_regex": "乐队的夏天|综艺纯享音乐|披荆斩棘|我们的歌"},
+          "value": "Various Artists"
+        }
+      ]
+    },
+    "infer_artist_from_filename": {
+      "patterns": [
+        {
+          "match": {"folder_regex": "Eason Chan|陈奕迅"},
+          "filename_regex": "^\\d+\\.\\s*(?P<artist>.+?)\\s+-\\s+.+\\.[^.]+$",
+          "artist_group": "artist",
+          "fields": ["artist", "albumartist"]
+        }
+      ]
     }
   }
 }
