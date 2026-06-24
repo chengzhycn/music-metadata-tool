@@ -112,6 +112,44 @@ def test_plain_text_logs_endpoint(tmp_path: Path):
     assert response.headers["content-type"].startswith("text/plain")
 
 
+def test_fix_report_download_endpoint(tmp_path: Path):
+    music_dir = tmp_path / "music"
+    report_dir = tmp_path / "report"
+    music_dir.mkdir()
+    index = report_dir / "music_metadata_index.csv"
+    write_index(index, [])
+    client = TestClient(create_app(music_dir, index, report_dir))
+
+    response = client.post("/api/jobs/fix", json={"items": ["watermark"], "write": False, "resume": False})
+    assert response.status_code == 200
+    job_id = response.json()["id"]
+
+    for _ in range(100):
+        job = client.get(f"/api/jobs/{job_id}").json()
+        if job["status"] == "completed":
+            break
+
+    response = client.get(f"/api/jobs/{job_id}/report")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment" in response.headers["content-disposition"]
+    assert "path,status,items" in response.text
+
+
+def test_scan_job_report_download_returns_404(tmp_path: Path):
+    music_dir = tmp_path / "music"
+    report_dir = tmp_path / "report"
+    music_dir.mkdir()
+    client = TestClient(create_app(music_dir, report_dir / "music_metadata_index.csv", report_dir))
+
+    response = client.post("/api/jobs/scan", json={"full": False, "progress_every": 1})
+    assert response.status_code == 200
+    job_id = response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/report")
+    assert response.status_code == 404
+
+
 def test_update_rejects_unsupported_tags(tmp_path: Path):
     music_dir = tmp_path / "music"
     report_dir = tmp_path / "report"

@@ -60,9 +60,11 @@ GET    /api/jobs
 GET    /api/jobs/{job_id}
 GET    /api/jobs/{job_id}/logs
 GET    /api/jobs/{job_id}/logs.txt
+GET    /api/jobs/{job_id}/report
 ```
 
 `/logs` returns JSON for clients. `/logs.txt` returns `text/plain` for browser-friendly log viewing and supports `tail=N`.
+`/report` returns the CSV artifact for fix jobs when the report exists.
 
 Track IDs are short SHA-256 hashes of the indexed absolute path. They are stable
 as long as the mounted path remains stable.

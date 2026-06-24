@@ -35,13 +35,19 @@ class Tee(io.TextIOBase):
 
     def write(self, text: str) -> int:
         for stream in self.streams:
-            stream.write(text)
-            stream.flush()
+            try:
+                stream.write(text)
+                stream.flush()
+            except ValueError:
+                pass
         return len(text)
 
     def flush(self) -> None:
         for stream in self.streams:
-            stream.flush()
+            try:
+                stream.flush()
+            except ValueError:
+                pass
 
 
 class JobManager:
@@ -93,6 +99,13 @@ class JobManager:
         if not path.exists():
             return ""
         return path.read_text(encoding="utf-8", errors="replace")
+
+    def get_fix_report_path(self, job_id: str) -> Path | None:
+        job = self.jobs.get(job_id)
+        if not job or job.kind != "fix":
+            return None
+        path = self.jobs_dir / f"{job_id}_fix_report.csv"
+        return path if path.exists() else None
 
     def submit_scan(self, music_dir: Path, index_path: Path, report_dir: Path, full: bool, progress_every: int) -> dict:
         return self._submit("scan", lambda: scan_library(music_dir, index_path, report_dir, full, progress_every))

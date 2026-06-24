@@ -143,6 +143,7 @@ GET    /api/jobs
 GET    /api/jobs/{job_id}
 GET    /api/jobs/{job_id}/logs
 GET    /api/jobs/{job_id}/logs.txt
+GET    /api/jobs/{job_id}/report
 ```
 
 浏览器里查看日志建议用纯文本接口：
@@ -152,6 +153,12 @@ http://localhost:8080/api/jobs/<job_id>/logs.txt?tail=200
 ```
 
 `tail=200` 表示只看最后 200 行。旧的 `/logs` 接口返回 JSON，适合程序调用。
+
+下载 fix dry-run 或写入任务生成的 CSV 报告：
+
+```text
+http://localhost:8080/api/jobs/<job_id>/report
+```
 
 Web 写 tag 时会：
 

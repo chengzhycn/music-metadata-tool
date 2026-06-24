@@ -5,7 +5,7 @@ import csv
 import hashlib
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from .. import __version__
@@ -199,5 +199,16 @@ def create_app(music_dir: Path, index_path: Path, report_dir: Path) -> FastAPI:
             if text:
                 text += "\n"
         return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
+
+    @app.get("/api/jobs/{job_id}/report")
+    def job_report(job_id: str):
+        path = manager.get_fix_report_path(job_id)
+        if path is None:
+            raise HTTPException(status_code=404, detail="fix report not found")
+        return FileResponse(
+            path,
+            media_type="text/csv; charset=utf-8",
+            filename=path.name,
+        )
 
     return app
