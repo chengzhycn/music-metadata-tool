@@ -107,6 +107,15 @@ class JobManager:
         path = self.jobs_dir / f"{job_id}_fix_report.csv"
         return path if path.exists() else None
 
+    def get_request(self, job_id: str) -> dict | None:
+        job = self.jobs.get(job_id)
+        if not job:
+            return None
+        path = self.jobs_dir / f"{job_id}_request.json"
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
     def submit_scan(self, music_dir: Path, index_path: Path, report_dir: Path, full: bool, progress_every: int) -> dict:
         return self._submit("scan", lambda: scan_library(music_dir, index_path, report_dir, full, progress_every))
 
@@ -119,9 +128,19 @@ class JobManager:
         progress_every: int,
         flush_every: int,
         resume: bool,
+        rules: dict | None = None,
     ) -> dict:
         job_id = uuid.uuid4().hex
         report_path = self.jobs_dir / f"{job_id}_fix_report.csv"
+        request = {
+            "items": items,
+            "fallback_genre": fallback_genre,
+            "write": write,
+            "progress_every": progress_every,
+            "flush_every": flush_every,
+            "resume": resume,
+            "rules": rules or {},
+        }
         return self._submit(
             "fix",
             lambda: run_fix(
@@ -133,11 +152,13 @@ class JobManager:
                 progress_every,
                 flush_every,
                 resume,
+                rules or {},
             ),
             job_id=job_id,
+            request=request,
         )
 
-    def _submit(self, kind: str, fn, job_id: str | None = None) -> dict:
+    def _submit(self, kind: str, fn, job_id: str | None = None, request: dict | None = None) -> dict:
         job_id = job_id or uuid.uuid4().hex
         log_path = self.jobs_dir / f"{job_id}.log"
         job = JobRecord(
@@ -151,6 +172,9 @@ class JobManager:
         with self.lock:
             self.jobs[job_id] = job
             self._append_job(job)
+            if request is not None:
+                request_path = self.jobs_dir / f"{job_id}_request.json"
+                request_path.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
         self.executor.submit(self._run, job_id, fn)
         return asdict(job)
 

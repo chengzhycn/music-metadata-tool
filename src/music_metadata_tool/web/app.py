@@ -32,6 +32,7 @@ class FixJobRequest(BaseModel):
     progress_every: int = 100
     flush_every: int = 1000
     resume: bool = True
+    rules: dict = Field(default_factory=dict)
 
 
 def path_id(path: str) -> str:
@@ -168,6 +169,7 @@ def create_app(music_dir: Path, index_path: Path, report_dir: Path) -> FastAPI:
             request.progress_every,
             request.flush_every,
             request.resume,
+            request.rules,
         )
 
     @app.get("/api/jobs")
@@ -210,5 +212,12 @@ def create_app(music_dir: Path, index_path: Path, report_dir: Path) -> FastAPI:
             media_type="text/csv; charset=utf-8",
             filename=path.name,
         )
+
+    @app.get("/api/jobs/{job_id}/request")
+    def job_request(job_id: str):
+        request = manager.get_request(job_id)
+        if request is None:
+            raise HTTPException(status_code=404, detail="job request not found")
+        return request
 
     return app

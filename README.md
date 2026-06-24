@@ -99,6 +99,39 @@ music-metadata-tool fix \
 
 `watermark` 修复项只处理 `comment` 和 `description` 中的高置信脏值，例如 `kuwo`、`捌零音樂論壇/賴子收藏`、`This music track is downloaded from qobuz`。扫描阶段发现的 `album=绝对收藏`、歌词里出现“收藏”等情况不应作为水印修复目标。
 
+Web fix job 支持一次性 inline rules。规则会直接参与本次任务执行，并保存到 `/report/jobs/<job_id>_request.json` 作为审计快照：
+
+```json
+{
+  "items": ["albumartist"],
+  "write": false,
+  "resume": false,
+  "rules": {
+    "albumartist": {
+      "skip_patterns": ["唱片", "/", "、", "&", "feat\\."],
+      "allow_patterns": ["^[^/、&,，+]+$"],
+      "force": [
+        {
+          "match": {
+            "folder": "/music/Eason Chan/[Hi-Res]2018 陈奕迅《L.O.V.E.》[Hifitrack]"
+          },
+          "value": "陈奕迅",
+          "reason": "album artist should be Eason Chan"
+        }
+      ],
+      "skip": [
+        {
+          "match": {
+            "folder": "/music/Davidson & Davis - Classic Heartstrings"
+          },
+          "reason": "artist tag is label/source name"
+        }
+      ]
+    }
+  }
+}
+```
+
 如果噪声 genre 需要指定替代值：
 
 ```bash
@@ -144,6 +177,7 @@ GET    /api/jobs/{job_id}
 GET    /api/jobs/{job_id}/logs
 GET    /api/jobs/{job_id}/logs.txt
 GET    /api/jobs/{job_id}/report
+GET    /api/jobs/{job_id}/request
 ```
 
 浏览器里查看日志建议用纯文本接口：
@@ -158,6 +192,12 @@ http://localhost:8080/api/jobs/<job_id>/logs.txt?tail=200
 
 ```text
 http://localhost:8080/api/jobs/<job_id>/report
+```
+
+查看任务请求参数快照：
+
+```text
+http://localhost:8080/api/jobs/<job_id>/request
 ```
 
 Web 写 tag 时会：

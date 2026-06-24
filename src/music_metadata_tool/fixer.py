@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 import csv
+import re
 
 from .rules import canonical_genre, normalize_text
 from .tags import open_easy, set_tag
@@ -23,7 +25,10 @@ WATERMARK_CLEAR_PREFIXES = (
 FIX_REPORT_FIELDS = [
     "path",
     "status",
+    "decision",
     "items",
+    "rule_source",
+    "skip_reason",
     "old_genre",
     "new_genre",
     "old_albumartist",
@@ -35,6 +40,21 @@ FIX_REPORT_FIELDS = [
     "actions",
     "error",
 ]
+
+
+@dataclass
+class FixPlan:
+    changes: dict[str, str] = field(default_factory=dict)
+    decision: str = "unchanged"
+    rule_source: str = ""
+    skip_reason: str = ""
+
+
+@dataclass
+class AlbumArtistCandidate:
+    value: str = ""
+    track_count: int = 0
+    artist_count: int = 0
 
 
 def log(message: str = "") -> None:
@@ -69,7 +89,7 @@ def report_header_matches(report_path: Path) -> bool:
     return header == FIX_REPORT_FIELDS
 
 
-def albumartist_candidates(rows: list[dict[str, str]]) -> dict[tuple[str, str], str]:
+def albumartist_candidates(rows: list[dict[str, str]]) -> dict[tuple[str, str], AlbumArtistCandidate]:
     grouped = defaultdict(Counter)
     for row in rows:
         album = row.get("album", "").strip()
@@ -80,37 +100,147 @@ def albumartist_candidates(rows: list[dict[str, str]]) -> dict[tuple[str, str], 
     result = {}
     for key, artists in grouped.items():
         if len(artists) == 1:
-            result[key] = next(iter(artists))
+            value, count = next(iter(artists.items()))
+            result[key] = AlbumArtistCandidate(value=value, track_count=count, artist_count=len(artists))
     return result
 
 
-def planned_changes(
+def planned_fix(
     row: dict[str, str],
     items: set[str],
-    albumartist_by_album: dict[tuple[str, str], str],
+    albumartist_by_album: dict[tuple[str, str], AlbumArtistCandidate],
     fallback_genre: str,
-) -> dict[str, str]:
-    changes = {}
+    rules: dict | None = None,
+) -> FixPlan:
+    plan = FixPlan()
     if "genre" in items:
         old_genre = row.get("genre", "").strip()
         new_genre, genre_status = canonical_genre(old_genre)
         if genre_status in {"invalid_source_noise", "label_or_source_noise"}:
             new_genre = normalize_text(fallback_genre)
         if old_genre != new_genre and genre_status in {"mapped", "invalid_source_noise", "label_or_source_noise"}:
-            changes["genre"] = new_genre
+            plan.changes["genre"] = new_genre
+            plan.rule_source = plan.rule_source or f"genre.{genre_status}"
 
     if "albumartist" in items:
-        old_albumartist = row.get("albumartist", "").strip()
-        key = (row.get("folder", "").strip(), row.get("album", "").strip())
-        candidate = albumartist_by_album.get(key, "")
-        if not old_albumartist and candidate:
-            changes["albumartist"] = candidate
+        apply_albumartist_rules(row, albumartist_by_album, rules or {}, plan)
     if "watermark" in items:
         for key in ["comment", "description"]:
             old_value = row.get(key, "").strip()
             if should_clear_watermark_value(old_value):
-                changes[key] = ""
-    return changes
+                plan.changes[key] = ""
+                plan.rule_source = plan.rule_source or "watermark.high_confidence"
+    if plan.changes:
+        plan.decision = "change"
+    return plan
+
+
+def planned_changes(
+    row: dict[str, str],
+    items: set[str],
+    albumartist_by_album: dict[tuple[str, str], AlbumArtistCandidate],
+    fallback_genre: str,
+    rules: dict | None = None,
+) -> dict[str, str]:
+    return planned_fix(row, items, albumartist_by_album, fallback_genre, rules).changes
+
+
+def apply_albumartist_rules(
+    row: dict[str, str],
+    albumartist_by_album: dict[tuple[str, str], AlbumArtistCandidate],
+    rules: dict,
+    plan: FixPlan,
+) -> None:
+    old_albumartist = row.get("albumartist", "").strip()
+    if old_albumartist:
+        return
+    albumartist_rules = rules.get("albumartist", {}) if isinstance(rules, dict) else {}
+    forced = first_matching_rule(row, albumartist_rules.get("force", []))
+    if forced:
+        value = normalize_text(str(forced.get("value", "")))
+        if value:
+            plan.changes["albumartist"] = value
+            plan.rule_source = "albumartist.force"
+            return
+    skipped = first_matching_rule(row, albumartist_rules.get("skip", []))
+    if skipped:
+        plan.decision = "skipped"
+        plan.rule_source = "albumartist.skip"
+        plan.skip_reason = str(skipped.get("reason", "matched skip rule"))
+        return
+
+    key = (row.get("folder", "").strip(), row.get("album", "").strip())
+    candidate = albumartist_by_album.get(key)
+    if not candidate or not candidate.value:
+        return
+
+    defaults = albumartist_rules.get("defaults", {}) if isinstance(albumartist_rules.get("defaults", {}), dict) else {}
+    min_album_tracks = int(defaults.get("min_album_tracks", 1))
+    max_artist_count = int(defaults.get("max_artist_count", 1))
+    if candidate.track_count < min_album_tracks:
+        plan.decision = "skipped"
+        plan.rule_source = "albumartist.defaults.min_album_tracks"
+        plan.skip_reason = f"candidate track count {candidate.track_count} < {min_album_tracks}"
+        return
+    if candidate.artist_count > max_artist_count:
+        plan.decision = "skipped"
+        plan.rule_source = "albumartist.defaults.max_artist_count"
+        plan.skip_reason = f"candidate artist count {candidate.artist_count} > {max_artist_count}"
+        return
+    skip_pattern = first_matching_pattern(candidate.value, albumartist_rules.get("skip_patterns", []))
+    if skip_pattern:
+        plan.decision = "skipped"
+        plan.rule_source = "albumartist.skip_patterns"
+        plan.skip_reason = f"candidate matched skip pattern: {skip_pattern}"
+        return
+    allow_patterns = albumartist_rules.get("allow_patterns", [])
+    if allow_patterns and not first_matching_pattern(candidate.value, allow_patterns):
+        plan.decision = "skipped"
+        plan.rule_source = "albumartist.allow_patterns"
+        plan.skip_reason = "candidate did not match allow patterns"
+        return
+    plan.changes["albumartist"] = candidate.value
+    plan.rule_source = "albumartist.auto_single_artist_album"
+
+
+def first_matching_pattern(value: str, patterns) -> str:
+    if not isinstance(patterns, list):
+        return ""
+    for pattern in patterns:
+        pattern_text = str(pattern)
+        try:
+            if re.search(pattern_text, value, re.IGNORECASE):
+                return pattern_text
+        except re.error:
+            continue
+    return ""
+
+
+def first_matching_rule(row: dict[str, str], rules) -> dict | None:
+    if not isinstance(rules, list):
+        return None
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        match = rule.get("match", {})
+        if isinstance(match, dict) and row_matches(row, match):
+            return rule
+    return None
+
+
+def row_matches(row: dict[str, str], match: dict[str, str]) -> bool:
+    for key, expected in match.items():
+        expected_text = str(expected)
+        if key.endswith("_regex"):
+            row_key = key.removesuffix("_regex")
+            try:
+                if not re.search(expected_text, row.get(row_key, ""), re.IGNORECASE):
+                    return False
+            except re.error:
+                return False
+        elif row.get(key, "") != expected_text:
+            return False
+    return True
 
 
 def should_clear_watermark_value(value: str) -> bool:
@@ -138,6 +268,7 @@ def run_fix(
     progress_every: int,
     flush_every: int,
     resume: bool,
+    rules: dict | None = None,
 ) -> None:
     rows = read_index_rows(index_path)
     if resume and report_path.exists() and not report_header_matches(report_path):
@@ -170,11 +301,15 @@ def run_fix(
             if str(path) in processed_paths:
                 counts["skipped"] += 1
                 continue
-            changes = planned_changes(row, items, albumartist_by_album, fallback_genre)
+            plan = planned_fix(row, items, albumartist_by_album, fallback_genre, rules)
+            changes = plan.changes
             report = {
                 "path": str(path),
                 "status": "unchanged",
+                "decision": plan.decision,
                 "items": ",".join(sorted(items)),
+                "rule_source": plan.rule_source,
+                "skip_reason": plan.skip_reason,
                 "old_genre": row.get("genre", ""),
                 "new_genre": row.get("genre", ""),
                 "old_albumartist": row.get("albumartist", ""),
@@ -213,6 +348,9 @@ def run_fix(
                 else:
                     report["status"] = "would_change"
                     counts["would_change"] += 1
+            elif plan.decision == "skipped":
+                report["status"] = "skipped"
+                counts["skipped_by_rule"] += 1
             else:
                 counts["unchanged"] += 1
             writer.writerow(report)
@@ -221,12 +359,14 @@ def run_fix(
             if i == 1 or (progress_every > 0 and i % progress_every == 0):
                 log(
                     f"修复进度: processed={i:,}, "
-                    f"skipped={counts['skipped']:,}, would_change={counts['would_change']:,}, "
+                    f"skipped={counts['skipped']:,}, skipped_by_rule={counts['skipped_by_rule']:,}, "
+                    f"would_change={counts['would_change']:,}, "
                     f"changed={counts['changed']:,}, errors={counts['errors']:,}"
                 )
         f.flush()
     log("修复完成:")
     log(f"- skipped: {counts['skipped']:,}")
+    log(f"- skipped_by_rule: {counts['skipped_by_rule']:,}")
     log(f"- unchanged: {counts['unchanged']:,}")
     log(f"- would_change: {counts['would_change']:,}")
     log(f"- changed: {counts['changed']:,}")

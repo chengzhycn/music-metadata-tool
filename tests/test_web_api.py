@@ -133,7 +133,31 @@ def test_fix_report_download_endpoint(tmp_path: Path):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
     assert "attachment" in response.headers["content-disposition"]
-    assert "path,status,items" in response.text
+    assert "path,status,decision,items" in response.text
+
+
+def test_fix_job_saves_request_snapshot(tmp_path: Path):
+    music_dir = tmp_path / "music"
+    report_dir = tmp_path / "report"
+    music_dir.mkdir()
+    index = report_dir / "music_metadata_index.csv"
+    write_index(index, [])
+    client = TestClient(create_app(music_dir, index, report_dir))
+    payload = {
+        "items": ["albumartist"],
+        "write": False,
+        "resume": False,
+        "rules": {"albumartist": {"skip_patterns": ["唱片"]}},
+    }
+
+    response = client.post("/api/jobs/fix", json=payload)
+    assert response.status_code == 200
+    job_id = response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/request")
+    assert response.status_code == 200
+    assert response.json()["items"] == ["albumartist"]
+    assert response.json()["rules"]["albumartist"]["skip_patterns"] == ["唱片"]
 
 
 def test_scan_job_report_download_returns_404(tmp_path: Path):

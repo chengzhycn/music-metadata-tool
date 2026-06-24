@@ -65,6 +65,7 @@ def main() -> None:
             args.progress_every,
             args.flush_every,
             not args.no_resume,
+            {},
         )
     elif args.command == "web":
         import uvicorn

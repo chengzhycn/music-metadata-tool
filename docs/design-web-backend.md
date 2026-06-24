@@ -44,6 +44,7 @@ Background job state is append-only JSONL:
 ```text
 /report/jobs/jobs.jsonl
 /report/jobs/<job_id>.log
+/report/jobs/<job_id>_request.json
 /report/jobs/<job_id>_fix_report.csv
 ```
 
@@ -61,10 +62,28 @@ GET    /api/jobs/{job_id}
 GET    /api/jobs/{job_id}/logs
 GET    /api/jobs/{job_id}/logs.txt
 GET    /api/jobs/{job_id}/report
+GET    /api/jobs/{job_id}/request
 ```
 
 `/logs` returns JSON for clients. `/logs.txt` returns `text/plain` for browser-friendly log viewing and supports `tail=N`.
 `/report` returns the CSV artifact for fix jobs when the report exists.
+`/request` returns the submitted job request snapshot, including inline rules used for that run.
+
+Fix jobs may include inline rules:
+
+```json
+{
+  "items": ["albumartist"],
+  "rules": {
+    "albumartist": {
+      "skip_patterns": ["唱片", "/", "、"],
+      "allow_patterns": ["^[^/、&,，+]+$"],
+      "force": [{"match": {"folder": "/music/example"}, "value": "Artist"}],
+      "skip": [{"match": {"folder": "/music/bad"}, "reason": "bad source tags"}]
+    }
+  }
+}
+```
 
 Track IDs are short SHA-256 hashes of the indexed absolute path. They are stable
 as long as the mounted path remains stable.
