@@ -97,6 +97,21 @@ def test_scan_job_creation(tmp_path: Path):
     assert job["status"] in {"pending", "running", "completed"}
 
 
+def test_plain_text_logs_endpoint(tmp_path: Path):
+    music_dir = tmp_path / "music"
+    report_dir = tmp_path / "report"
+    music_dir.mkdir()
+    client = TestClient(create_app(music_dir, report_dir / "music_metadata_index.csv", report_dir))
+
+    response = client.post("/api/jobs/scan", json={"full": False, "progress_every": 1})
+    assert response.status_code == 200
+    job_id = response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/logs.txt", params={"tail": 10})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+
+
 def test_update_rejects_unsupported_tags(tmp_path: Path):
     music_dir = tmp_path / "music"
     report_dir = tmp_path / "report"

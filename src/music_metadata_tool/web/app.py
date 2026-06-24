@@ -5,6 +5,7 @@ import csv
 import hashlib
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from ..tags import INDEX_FIELDS, read_metadata_row, write_tags
@@ -185,5 +186,17 @@ def create_app(music_dir: Path, index_path: Path, report_dir: Path) -> FastAPI:
         if text is None:
             raise HTTPException(status_code=404, detail="job not found")
         return {"job_id": job_id, "log": text}
+
+    @app.get("/api/jobs/{job_id}/logs.txt", response_class=PlainTextResponse)
+    def job_logs_text(job_id: str, tail: int = Query(0, ge=0, le=10000)):
+        text = manager.get_log(job_id)
+        if text is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        if tail:
+            lines = text.splitlines()
+            text = "\n".join(lines[-tail:])
+            if text:
+                text += "\n"
+        return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
 
     return app
