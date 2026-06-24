@@ -1,6 +1,6 @@
 services:
   music-metadata-tool-scan:
-    image: crpi-su5s3bwb64o8zfrt.cn-hangzhou.personal.cr.aliyuncs.com/marsha/music-metadata-tool:0.2.1
+    image: crpi-su5s3bwb64o8zfrt.cn-hangzhou.personal.cr.aliyuncs.com/marsha/music-metadata-tool:0.2.2
     platform: linux/amd64
     volumes:
       - "${MUSIC_DIR:?Set MUSIC_DIR to your music library}:/music"
@@ -14,7 +14,7 @@ services:
       - /report
 
   music-metadata-tool-fix-dry-run:
-    image: crpi-su5s3bwb64o8zfrt.cn-hangzhou.personal.cr.aliyuncs.com/marsha/music-metadata-tool:0.2.1
+    image: crpi-su5s3bwb64o8zfrt.cn-hangzhou.personal.cr.aliyuncs.com/marsha/music-metadata-tool:0.2.2
     platform: linux/amd64
     volumes:
       - "${MUSIC_DIR:?Set MUSIC_DIR to your music library}:/music"
@@ -29,7 +29,7 @@ services:
       - genre,albumartist
 
   music-metadata-tool-fix-write:
-    image: crpi-su5s3bwb64o8zfrt.cn-hangzhou.personal.cr.aliyuncs.com/marsha/music-metadata-tool:0.2.1
+    image: crpi-su5s3bwb64o8zfrt.cn-hangzhou.personal.cr.aliyuncs.com/marsha/music-metadata-tool:0.2.2
     platform: linux/amd64
     volumes:
       - "${MUSIC_DIR:?Set MUSIC_DIR to your music library}:/music"
@@ -45,7 +45,7 @@ services:
       - --write
 
   music-metadata-tool-web:
-    image: crpi-su5s3bwb64o8zfrt.cn-hangzhou.personal.cr.aliyuncs.com/marsha/music-metadata-tool:0.2.1
+    image: crpi-su5s3bwb64o8zfrt.cn-hangzhou.personal.cr.aliyuncs.com/marsha/music-metadata-tool:0.2.2
     platform: linux/amd64
     ports:
       - "${WEB_PORT:-8080}:8080"
