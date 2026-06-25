@@ -99,6 +99,48 @@ def test_compilation_albumartist_sets_various_artists_by_rule():
     assert plan.rule_source == "compilation_albumartist.set"
 
 
+def test_copy_artist_to_albumartist_by_rule():
+    row = {
+        "folder": "/music/音乐/2024年QQ音乐巅峰榜单",
+        "filename": "APT.-ROSÉ&Bruno Mars.flac",
+        "artist": "ROSÉ; Bruno Mars",
+        "albumartist": "",
+    }
+    rules = {
+        "copy_artist_to_albumartist": {
+            "copy": [
+                {
+                    "match": {"folder_regex": "QQ音乐巅峰榜单"},
+                    "reason": "chart singles should keep artist and albumartist aligned",
+                }
+            ]
+        }
+    }
+
+    plan = planned_fix(row, {"copy_artist_to_albumartist"}, {}, "", rules)
+
+    assert plan.changes == {"albumartist": "ROSÉ; Bruno Mars"}
+    assert plan.rule_source == "copy_artist_to_albumartist.copy"
+
+
+def test_copy_artist_to_albumartist_ignores_empty_artist():
+    row = {
+        "folder": "/music/音乐/2024年QQ音乐巅峰榜单",
+        "filename": "unknown.flac",
+        "artist": "",
+        "albumartist": "",
+    }
+    rules = {
+        "copy_artist_to_albumartist": {
+            "copy": [{"match": {"folder_regex": "QQ音乐巅峰榜单"}}]
+        }
+    }
+
+    plan = planned_fix(row, {"copy_artist_to_albumartist"}, {}, "", rules)
+
+    assert plan.changes == {}
+
+
 def test_infer_artist_from_filename_does_not_change_album():
     row = {
         "folder": "/music/Eason Chan/陈奕迅 WAV",

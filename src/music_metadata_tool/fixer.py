@@ -128,6 +128,8 @@ def planned_fix(
         apply_albumartist_rules(row, albumartist_by_album, rules or {}, plan)
     if "compilation_albumartist" in items:
         apply_compilation_albumartist_rules(row, rules or {}, plan)
+    if "copy_artist_to_albumartist" in items:
+        apply_copy_artist_to_albumartist_rules(row, rules or {}, plan)
     if "infer_artist_from_filename" in items:
         apply_filename_artist_rules(row, rules or {}, plan)
     if "watermark" in items:
@@ -164,6 +166,19 @@ def apply_compilation_albumartist_rules(row: dict[str, str], rules: dict, plan: 
         return
     plan.changes["albumartist"] = value
     plan.rule_source = plan.rule_source or "compilation_albumartist.set"
+
+
+def apply_copy_artist_to_albumartist_rules(row: dict[str, str], rules: dict, plan: FixPlan) -> None:
+    old_albumartist = row.get("albumartist", "").strip()
+    artist = normalize_text(row.get("artist", ""))
+    if old_albumartist or not artist:
+        return
+    item_rules = rules.get("copy_artist_to_albumartist", {}) if isinstance(rules, dict) else {}
+    matched = first_matching_rule(row, item_rules.get("copy", []))
+    if not matched:
+        return
+    plan.changes["albumartist"] = artist
+    plan.rule_source = plan.rule_source or "copy_artist_to_albumartist.copy"
 
 
 def apply_filename_artist_rules(row: dict[str, str], rules: dict, plan: FixPlan) -> None:
@@ -329,7 +344,14 @@ def run_fix(
         resume = False
     processed_paths = read_processed_paths(report_path) if resume else set()
     items = set(item_names)
-    unsupported = items - {"genre", "albumartist", "watermark", "compilation_albumartist", "infer_artist_from_filename"}
+    unsupported = items - {
+        "genre",
+        "albumartist",
+        "watermark",
+        "compilation_albumartist",
+        "copy_artist_to_albumartist",
+        "infer_artist_from_filename",
+    }
     if unsupported:
         raise ValueError(f"unsupported fix item(s): {', '.join(sorted(unsupported))}")
 
