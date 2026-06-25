@@ -283,31 +283,42 @@ def first_tag(audio, key: str) -> str:
     return ""
 
 
-def set_tag(audio, key: str, value: str) -> None:
-    if value:
-        audio[key] = [value]
+def tag_values(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    value_text = str(value).strip()
+    return [value_text] if value_text else []
+
+
+def set_tag(audio, key: str, value) -> None:
+    values = tag_values(value)
+    if values:
+        audio[key] = values
     elif key in audio:
         del audio[key]
 
 
-def set_wav_tag(audio: WAVE, key: str, value: str) -> None:
+def set_wav_tag(audio: WAVE, key: str, value) -> None:
+    values = tag_values(value)
     if audio.tags is None:
         audio.add_tags()
     if key == "comment":
         audio.tags.delall("COMM")
-        if value:
-            audio.tags.add(COMM(encoding=Encoding.UTF8, lang="eng", desc="", text=[value]))
+        if values:
+            audio.tags.add(COMM(encoding=Encoding.UTF8, lang="eng", desc="", text=values))
         return
     frame_cls = WAV_TEXT_FRAMES.get(key)
     frame_id = WAV_FRAME_IDS.get(key)
     if frame_cls is None or frame_id is None:
         raise ValueError(f"unsupported WAV tag: {key}")
     audio.tags.delall(frame_id)
-    if value:
-        audio.tags.setall(frame_id, [frame_cls(encoding=Encoding.UTF8, text=[value])])
+    if values:
+        audio.tags.setall(frame_id, [frame_cls(encoding=Encoding.UTF8, text=values)])
 
 
-def write_wav_tags(path: Path, updates: dict[str, str]) -> None:
+def write_wav_tags(path: Path, updates: dict) -> None:
     audio = WAVE(path)
     if audio.tags is None:
         audio.add_tags()
@@ -316,7 +327,7 @@ def write_wav_tags(path: Path, updates: dict[str, str]) -> None:
     audio.save()
 
 
-def write_tags(path: Path, updates: dict[str, str]) -> None:
+def write_tags(path: Path, updates: dict) -> None:
     if path.suffix.lower() == ".wav":
         write_wav_tags(path, updates)
         return

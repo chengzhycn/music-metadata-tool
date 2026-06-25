@@ -167,3 +167,94 @@ def test_infer_artist_from_filename_does_not_change_album():
     assert plan.changes == {"artist": "陈奕迅", "albumartist": "陈奕迅"}
     assert "album" not in plan.changes
     assert plan.rule_source == "infer_artist_from_filename.patterns"
+
+
+def test_set_fields_sets_album_by_rule():
+    row = {
+        "folder": "/music/Davidson & Davis - Classic Heartstrings",
+        "album": "classic heaststsings",
+        "artist": "Davidson & Davis",
+        "albumartist": "Davidson & Davis",
+    }
+    rules = {
+        "set_fields": {
+            "set": [
+                {
+                    "match": {"folder": row["folder"]},
+                    "values": {"album": "Heartstrings"},
+                }
+            ]
+        }
+    }
+
+    plan = planned_fix(row, {"set_fields"}, {}, "", rules)
+
+    assert plan.changes == {"album": "Heartstrings"}
+    assert plan.rule_source == "set_fields.set"
+
+
+def test_clear_fields_clears_explicit_watermark_values_only():
+    row = {
+        "description": "酷我音乐",
+        "organization": "PMEDIA",
+        "publisher": "Real Publisher",
+        "artist": "Beyoncé",
+    }
+    rules = {
+        "clear_fields": {
+            "clear": [
+                {"fields": ["description"], "value_regex": "^酷我音乐$"},
+                {"fields": ["organization", "publisher"], "value_regex": "^PMEDIA$"},
+            ]
+        }
+    }
+
+    plan = planned_fix(row, {"clear_fields"}, {}, "", rules)
+
+    assert plan.changes == {"description": "", "organization": ""}
+    assert "publisher" not in plan.changes
+    assert "artist" not in plan.changes
+    assert plan.rule_source == "clear_fields.clear"
+
+
+def test_split_artist_splits_artist_without_changing_albumartist():
+    row = {
+        "folder": "/music/MUSIC/中文音乐/张雨生",
+        "artist": "张雨生&张惠妹",
+        "albumartist": "张雨生",
+    }
+    rules = {
+        "split_artist": {
+            "rules": [
+                {
+                    "match": {"folder_regex": "/music/MUSIC/中文音乐/"},
+                    "separator_regex": r"\s*(?:&|/|、|，|,|\+)\s*",
+                }
+            ]
+        }
+    }
+
+    plan = planned_fix(row, {"split_artist"}, {}, "", rules)
+
+    assert plan.changes == {"artist": ["张雨生", "张惠妹"]}
+    assert "albumartist" not in plan.changes
+    assert plan.rule_source == "split_artist.rules"
+
+
+def test_split_artist_can_skip_known_group_names():
+    row = {
+        "folder": "/music/MUSIC/中文音乐/林忆莲",
+        "artist": "林忆莲 & Blue Jeans",
+    }
+    rules = {
+        "split_artist": {
+            "skip_patterns": ["Blue Jeans"],
+            "rules": [{"match": {"folder_regex": "/music/MUSIC/中文音乐/"}}],
+        }
+    }
+
+    plan = planned_fix(row, {"split_artist"}, {}, "", rules)
+
+    assert plan.changes == {}
+    assert plan.decision == "skipped"
+    assert plan.rule_source == "split_artist.skip_patterns"

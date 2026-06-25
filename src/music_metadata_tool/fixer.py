@@ -7,7 +7,7 @@ import csv
 import re
 
 from .rules import canonical_genre, normalize_text
-from .tags import write_tags
+from .tags import METADATA_FIELDS, text_value, write_tags
 
 
 WATERMARK_CLEAR_VALUES = {
@@ -31,6 +31,8 @@ FIX_REPORT_FIELDS = [
     "skip_reason",
     "old_artist",
     "new_artist",
+    "old_album",
+    "new_album",
     "old_genre",
     "new_genre",
     "old_albumartist",
@@ -43,10 +45,12 @@ FIX_REPORT_FIELDS = [
     "error",
 ]
 
+EDITABLE_FIX_FIELDS = set(METADATA_FIELDS) - {"raw_tag_keys", "watermark_text", "error"}
+
 
 @dataclass
 class FixPlan:
-    changes: dict[str, str] = field(default_factory=dict)
+    changes: dict = field(default_factory=dict)
     decision: str = "unchanged"
     rule_source: str = ""
     skip_reason: str = ""
@@ -132,6 +136,12 @@ def planned_fix(
         apply_copy_artist_to_albumartist_rules(row, rules or {}, plan)
     if "infer_artist_from_filename" in items:
         apply_filename_artist_rules(row, rules or {}, plan)
+    if "set_fields" in items:
+        apply_set_fields_rules(row, rules or {}, plan)
+    if "clear_fields" in items:
+        apply_clear_fields_rules(row, rules or {}, plan)
+    if "split_artist" in items:
+        apply_split_artist_rules(row, rules or {}, plan)
     if "watermark" in items:
         for key in ["comment", "description"]:
             old_value = row.get(key, "").strip()
@@ -151,6 +161,23 @@ def planned_changes(
     rules: dict | None = None,
 ) -> dict[str, str]:
     return planned_fix(row, items, albumartist_by_album, fallback_genre, rules).changes
+
+
+def display_value(value) -> str:
+    return text_value(value)
+
+
+def values_equal(old_value: str, new_value) -> bool:
+    return normalize_text(old_value) == normalize_text(display_value(new_value))
+
+
+def set_change(plan: FixPlan, row: dict[str, str], key: str, value, source: str) -> None:
+    if key not in EDITABLE_FIX_FIELDS:
+        return
+    if values_equal(row.get(key, ""), value):
+        return
+    plan.changes[key] = value
+    plan.rule_source = plan.rule_source or source
 
 
 def apply_compilation_albumartist_rules(row: dict[str, str], rules: dict, plan: FixPlan) -> None:
@@ -214,6 +241,63 @@ def apply_filename_artist_rules(row: dict[str, str], rules: dict, plan: FixPlan)
         plan.changes["albumartist"] = value
     if plan.changes:
         plan.rule_source = plan.rule_source or "infer_artist_from_filename.patterns"
+
+
+def apply_set_fields_rules(row: dict[str, str], rules: dict, plan: FixPlan) -> None:
+    item_rules = rules.get("set_fields", {}) if isinstance(rules, dict) else {}
+    for rule in matching_rules(row, item_rules.get("set", [])):
+        values = rule.get("values", {})
+        if not isinstance(values, dict):
+            continue
+        for key, value in values.items():
+            set_change(plan, row, str(key), normalize_text(value), "set_fields.set")
+
+
+def apply_clear_fields_rules(row: dict[str, str], rules: dict, plan: FixPlan) -> None:
+    item_rules = rules.get("clear_fields", {}) if isinstance(rules, dict) else {}
+    for rule in matching_rules(row, item_rules.get("clear", [])):
+        fields = rule.get("fields", [])
+        if isinstance(fields, str):
+            fields = [fields]
+        if not isinstance(fields, list):
+            continue
+        value_regex = str(rule.get("value_regex", ".*"))
+        for field_name in fields:
+            key = str(field_name)
+            if key not in EDITABLE_FIX_FIELDS:
+                continue
+            old_value = row.get(key, "")
+            if not old_value.strip():
+                continue
+            try:
+                matched = re.search(value_regex, old_value, re.IGNORECASE)
+            except re.error:
+                matched = None
+            if matched:
+                set_change(plan, row, key, "", "clear_fields.clear")
+
+
+def apply_split_artist_rules(row: dict[str, str], rules: dict, plan: FixPlan) -> None:
+    old_artist = row.get("artist", "").strip()
+    if not old_artist:
+        return
+    item_rules = rules.get("split_artist", {}) if isinstance(rules, dict) else {}
+    if first_matching_pattern(old_artist, item_rules.get("skip_patterns", [])):
+        plan.decision = "skipped"
+        plan.rule_source = "split_artist.skip_patterns"
+        plan.skip_reason = "artist matched skip pattern"
+        return
+    for rule in matching_rules(row, item_rules.get("rules", [])):
+        separator_regex = str(rule.get("separator_regex", r"\s*(?:&|/|、|，|,|\+)\s*"))
+        try:
+            parts = [normalize_text(part) for part in re.split(separator_regex, old_artist) if normalize_text(part)]
+        except re.error:
+            continue
+        unique_parts = list(dict.fromkeys(parts))
+        if len(unique_parts) < 2:
+            continue
+        set_change(plan, row, "artist", unique_parts, "split_artist.rules")
+        return
 
 
 def apply_albumartist_rules(
@@ -299,6 +383,19 @@ def first_matching_rule(row: dict[str, str], rules) -> dict | None:
     return None
 
 
+def matching_rules(row: dict[str, str], rules) -> list[dict]:
+    if not isinstance(rules, list):
+        return []
+    result = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        match = rule.get("match", {})
+        if not match or (isinstance(match, dict) and row_matches(row, match)):
+            result.append(rule)
+    return result
+
+
 def row_matches(row: dict[str, str], match: dict[str, str]) -> bool:
     for key, expected in match.items():
         expected_text = str(expected)
@@ -351,6 +448,9 @@ def run_fix(
         "compilation_albumartist",
         "copy_artist_to_albumartist",
         "infer_artist_from_filename",
+        "set_fields",
+        "clear_fields",
+        "split_artist",
     }
     if unsupported:
         raise ValueError(f"unsupported fix item(s): {', '.join(sorted(unsupported))}")
@@ -387,6 +487,8 @@ def run_fix(
                 "skip_reason": plan.skip_reason,
                 "old_artist": row.get("artist", ""),
                 "new_artist": row.get("artist", ""),
+                "old_album": row.get("album", ""),
+                "new_album": row.get("album", ""),
                 "old_genre": row.get("genre", ""),
                 "new_genre": row.get("genre", ""),
                 "old_albumartist": row.get("albumartist", ""),
@@ -401,20 +503,27 @@ def run_fix(
             if changes:
                 actions = []
                 if "artist" in changes:
-                    report["new_artist"] = changes["artist"]
-                    actions.append(f"artist:{row.get('artist', '')!r}->{changes['artist']!r}")
+                    report["new_artist"] = display_value(changes["artist"])
+                    actions.append(f"artist:{row.get('artist', '')!r}->{display_value(changes['artist'])!r}")
+                if "album" in changes:
+                    report["new_album"] = display_value(changes["album"])
+                    actions.append(f"album:{row.get('album', '')!r}->{display_value(changes['album'])!r}")
                 if "genre" in changes:
-                    report["new_genre"] = changes["genre"]
-                    actions.append(f"genre:{row.get('genre', '')!r}->{changes['genre']!r}")
+                    report["new_genre"] = display_value(changes["genre"])
+                    actions.append(f"genre:{row.get('genre', '')!r}->{display_value(changes['genre'])!r}")
                 if "albumartist" in changes:
-                    report["new_albumartist"] = changes["albumartist"]
-                    actions.append(f"albumartist:{row.get('albumartist', '')!r}->{changes['albumartist']!r}")
+                    report["new_albumartist"] = display_value(changes["albumartist"])
+                    actions.append(f"albumartist:{row.get('albumartist', '')!r}->{display_value(changes['albumartist'])!r}")
                 if "comment" in changes:
-                    report["new_comment"] = changes["comment"]
-                    actions.append(f"comment:{row.get('comment', '')!r}->{changes['comment']!r}")
+                    report["new_comment"] = display_value(changes["comment"])
+                    actions.append(f"comment:{row.get('comment', '')!r}->{display_value(changes['comment'])!r}")
                 if "description" in changes:
-                    report["new_description"] = changes["description"]
-                    actions.append(f"description:{row.get('description', '')!r}->{changes['description']!r}")
+                    report["new_description"] = display_value(changes["description"])
+                    actions.append(f"description:{row.get('description', '')!r}->{display_value(changes['description'])!r}")
+                for key, value in changes.items():
+                    if key in {"artist", "album", "genre", "albumartist", "comment", "description"}:
+                        continue
+                    actions.append(f"{key}:{row.get(key, '')!r}->{display_value(value)!r}")
                 report["actions"] = "; ".join(actions)
                 if write:
                     try:

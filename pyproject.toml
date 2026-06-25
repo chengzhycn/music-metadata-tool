@@ -1,6 +1,6 @@
 [project]
 name = "music-metadata-tool"
-version = "0.2.7"
+version = "0.2.8"
 description = "Incremental music metadata indexer and conservative tag fixer."
 requires-python = ">=3.11"
 dependencies = [

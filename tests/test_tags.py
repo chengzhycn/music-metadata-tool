@@ -57,3 +57,14 @@ def test_write_and_read_wav_id3_tags(tmp_path: Path):
     assert row["album"] == "测试专辑"
     assert "TPE1" in row["raw_tag_keys"]
     assert "TPE2" in row["raw_tag_keys"]
+
+
+def test_write_and_read_wav_multi_value_artist(tmp_path: Path):
+    path = tmp_path / "合唱.wav"
+    create_silent_wav(path)
+
+    write_tags(path, {"artist": ["张雨生", "张惠妹"]})
+
+    row = read_metadata_row(path)
+
+    assert row["artist"] == "张雨生; 张惠妹"
