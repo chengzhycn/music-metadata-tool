@@ -7,7 +7,7 @@ import csv
 import re
 
 from .rules import canonical_genre, normalize_text
-from .tags import open_easy, set_tag
+from .tags import write_tags
 
 
 WATERMARK_CLEAR_VALUES = {
@@ -309,10 +309,7 @@ def should_clear_watermark_value(value: str) -> bool:
 
 
 def apply_changes(path: Path, changes: dict[str, str]) -> None:
-    audio = open_easy(path)
-    for key, value in changes.items():
-        set_tag(audio, key, value)
-    audio.save()
+    write_tags(path, changes)
 
 
 def run_fix(

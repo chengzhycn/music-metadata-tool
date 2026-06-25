@@ -18,6 +18,8 @@
 - `compilation_albumartist`: 通过本次任务传入的规则，把合辑/综艺类目录的空 albumartist 填成指定值，例如 `Various Artists`。
 - `infer_artist_from_filename`: 通过本次任务传入的文件名规则，从文件名推断并填充空的 `artist` / `albumartist`；不会自动修改 `album`。
 
+WAV 文件使用 Mutagen 的 WAVE/ID3 写入路径，`artist`、`albumartist` 等字段会写成 WAV 内嵌 ID3 frame，并在扫描时从这些 frame 读回。
+
 ## 数据文件
 
 默认建议挂载：

@@ -5,6 +5,8 @@ from pathlib import Path
 import re
 
 from mutagen import File
+from mutagen.id3 import COMM, TALB, TCOM, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK, Encoding
+from mutagen.wave import WAVE
 
 
 AUDIO_EXTS = {
@@ -96,6 +98,30 @@ WATERMARK_RE = re.compile(
     re.IGNORECASE,
 )
 
+WAV_TEXT_FRAMES = {
+    "title": TIT2,
+    "artist": TPE1,
+    "albumartist": TPE2,
+    "album": TALB,
+    "date": TDRC,
+    "tracknumber": TRCK,
+    "discnumber": TPOS,
+    "genre": TCON,
+    "composer": TCOM,
+}
+
+WAV_FRAME_IDS = {
+    "title": "TIT2",
+    "artist": "TPE1",
+    "albumartist": "TPE2",
+    "album": "TALB",
+    "date": "TDRC",
+    "tracknumber": "TRCK",
+    "discnumber": "TPOS",
+    "genre": "TCON",
+    "composer": "TCOM",
+}
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -125,6 +151,22 @@ def join_tag(audio, key: str) -> str:
     if values is None:
         return ""
     return text_value(values)
+
+
+def wav_id3_text(audio, key: str) -> str:
+    if not isinstance(audio, WAVE) or audio.tags is None:
+        return ""
+    frame_id = WAV_FRAME_IDS.get(key)
+    if not frame_id:
+        return ""
+    return text_value(audio.tags.getall(frame_id))
+
+
+def wav_id3_comment(audio) -> str:
+    if not isinstance(audio, WAVE) or audio.tags is None:
+        return ""
+    comments = audio.tags.getall("COMM")
+    return text_value(comments)
 
 
 def raw_tag_map(audio) -> dict[str, str]:
@@ -196,16 +238,16 @@ def read_metadata_row(path: Path) -> dict[str, str]:
         raw_comment = raw_lookup(raw_tags, "comment")
         row.update(
             {
-                "title": join_tag(audio_easy, "title"),
-                "artist": join_tag(audio_easy, "artist"),
-                "albumartist": join_tag(audio_easy, "albumartist"),
-                "album": join_tag(audio_easy, "album"),
-                "date": join_tag(audio_easy, "date"),
-                "tracknumber": join_tag(audio_easy, "tracknumber"),
-                "discnumber": join_tag(audio_easy, "discnumber"),
-                "genre": join_tag(audio_easy, "genre"),
-                "composer": join_tag(audio_easy, "composer"),
-                "comment": easy_comment or raw_comment,
+                "title": join_tag(audio_easy, "title") or wav_id3_text(audio_raw, "title"),
+                "artist": join_tag(audio_easy, "artist") or wav_id3_text(audio_raw, "artist"),
+                "albumartist": join_tag(audio_easy, "albumartist") or wav_id3_text(audio_raw, "albumartist"),
+                "album": join_tag(audio_easy, "album") or wav_id3_text(audio_raw, "album"),
+                "date": join_tag(audio_easy, "date") or wav_id3_text(audio_raw, "date"),
+                "tracknumber": join_tag(audio_easy, "tracknumber") or wav_id3_text(audio_raw, "tracknumber"),
+                "discnumber": join_tag(audio_easy, "discnumber") or wav_id3_text(audio_raw, "discnumber"),
+                "genre": join_tag(audio_easy, "genre") or wav_id3_text(audio_raw, "genre"),
+                "composer": join_tag(audio_easy, "composer") or wav_id3_text(audio_raw, "composer"),
+                "comment": easy_comment or raw_comment or wav_id3_comment(audio_raw),
                 "description": raw_lookup(raw_tags, "description"),
                 "grouping": join_tag(audio_easy, "grouping") or raw_lookup(raw_tags, "grouping"),
                 "organization": raw_lookup(raw_tags, "organization"),
@@ -248,7 +290,36 @@ def set_tag(audio, key: str, value: str) -> None:
         del audio[key]
 
 
+def set_wav_tag(audio: WAVE, key: str, value: str) -> None:
+    if audio.tags is None:
+        audio.add_tags()
+    if key == "comment":
+        audio.tags.delall("COMM")
+        if value:
+            audio.tags.add(COMM(encoding=Encoding.UTF8, lang="eng", desc="", text=[value]))
+        return
+    frame_cls = WAV_TEXT_FRAMES.get(key)
+    frame_id = WAV_FRAME_IDS.get(key)
+    if frame_cls is None or frame_id is None:
+        raise ValueError(f"unsupported WAV tag: {key}")
+    audio.tags.delall(frame_id)
+    if value:
+        audio.tags.setall(frame_id, [frame_cls(encoding=Encoding.UTF8, text=[value])])
+
+
+def write_wav_tags(path: Path, updates: dict[str, str]) -> None:
+    audio = WAVE(path)
+    if audio.tags is None:
+        audio.add_tags()
+    for key, value in updates.items():
+        set_wav_tag(audio, key, value)
+    audio.save()
+
+
 def write_tags(path: Path, updates: dict[str, str]) -> None:
+    if path.suffix.lower() == ".wav":
+        write_wav_tags(path, updates)
+        return
     audio = open_easy(path)
     for key, value in updates.items():
         set_tag(audio, key, value)
